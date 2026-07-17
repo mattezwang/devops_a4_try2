@@ -3,7 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { centsToString, computeBalances } = require('../balances');
+const { centsToString, computeBalances, simplifyDebts } = require('../balances');
 
 function escapeHtml(str) {
   return String(str)
@@ -94,19 +94,44 @@ function groupPage(group) {
   const allZero = group.members.every(m => m.balance === '0.00');
   const balanceNote = allZero ? '<p class="empty-state">All balances are $0.00.</p>' : '';
 
-  const expenseList = group.expenses.length === 0
-    ? '<p class="empty-state">No expenses yet.</p>'
-    : group.expenses.map(exp => {
-        const splitNames = exp.splits.map(s => escapeHtml(s.member_name)).join(', ');
-        return `<div class="expense-item">
-          <div class="expense-info">
-            <strong>${escapeHtml(exp.description)}</strong>
-            — $${escapeHtml(exp.amount)}
-            paid by <em>${escapeHtml(exp.paid_by.name)}</em>
-            split between: ${splitNames}
-          </div>
-          <button class="delete-btn" data-expense-id="${exp.id}">Delete</button>
-        </div>`;
+  // Suggested settlements section
+  const suggestedSettlementsHtml = group.suggested_settlements.length === 0
+    ? '<p class="empty-state">All balances are settled — no payments needed.</p>'
+    : `<div class="suggested-settlements">${group.suggested_settlements.map(s =>
+        `<div class="settlement-suggestion">
+          ${escapeHtml(s.from.name)} pays ${escapeHtml(s.to.name)} <strong>$${escapeHtml(s.amount)}</strong>
+          <button class="record-suggestion-btn"
+                  data-from="${s.from.id}"
+                  data-to="${s.to.id}"
+                  data-amount="${escapeHtml(s.amount)}">Record this payment</button>
+        </div>`
+      ).join('')}</div>`;
+
+  // Activity feed
+  const activityList = group.feed.length === 0
+    ? '<p class="empty-state">No activity yet.</p>'
+    : group.feed.map(item => {
+        if (item.type === 'expense') {
+          const splitNames = item.splits.map(s => escapeHtml(s.member_name)).join(', ');
+          return `<div class="activity-item">
+            <div class="expense-info">
+              <strong>${escapeHtml(item.description)}</strong>
+              — $${escapeHtml(item.amount)}
+              paid by <em>${escapeHtml(item.paid_by.name)}</em>
+              split between: ${splitNames}
+            </div>
+            <button class="delete-btn" data-expense-id="${item.id}">Delete</button>
+          </div>`;
+        } else {
+          return `<div class="activity-item">
+            <div class="expense-info">
+              ${escapeHtml(item.from_member.name)} paid ${escapeHtml(item.to_member.name)}
+              <strong>$${escapeHtml(item.amount)}</strong>
+              <span class="settlement-tag">[settlement]</span>
+            </div>
+            <button class="delete-btn" data-settlement-id="${item.id}">Delete</button>
+          </div>`;
+        }
       }).join('');
 
   const memberOptions = group.members.map(m =>
@@ -115,6 +140,20 @@ function groupPage(group) {
 
   const splitCheckboxes = group.members.map(m =>
     `<label><input type="checkbox" name="split_between" value="${m.id}"> ${escapeHtml(m.name)}</label>`
+  ).join('');
+
+  const exactInputs = group.members.map(m =>
+    `<div class="split-row">
+      <label>${escapeHtml(m.name)}</label>
+      <input type="text" class="exact-amount" data-member-id="${m.id}" placeholder="0.00">
+    </div>`
+  ).join('');
+
+  const pctInputs = group.members.map(m =>
+    `<div class="split-row">
+      <label>${escapeHtml(m.name)}</label>
+      <input type="number" class="pct-amount" data-member-id="${m.id}" step="0.01" min="0.01" placeholder="0">
+    </div>`
   ).join('');
 
   return `<!DOCTYPE html>
@@ -137,8 +176,29 @@ function groupPage(group) {
       <tbody>${balanceRows}</tbody>
     </table>
 
-    <h2>Expenses</h2>
-    <div id="expense-list">${expenseList}</div>
+    <h2>Suggested Settlements</h2>
+    ${suggestedSettlementsHtml}
+
+    <h2>Record a Payment</h2>
+    <form id="record-payment-form" class="record-payment">
+      <div class="form-group">
+        <label for="pay-from">Who paid</label>
+        <select id="pay-from">${memberOptions}</select>
+      </div>
+      <div class="form-group">
+        <label for="pay-to">Who received</label>
+        <select id="pay-to">${memberOptions}</select>
+      </div>
+      <div class="form-group">
+        <label for="pay-amount">Amount ($)</label>
+        <input type="text" id="pay-amount" placeholder="7.33">
+      </div>
+      <button type="submit">Record Payment</button>
+      <p id="payment-error" class="error" style="display:none"></p>
+    </form>
+
+    <h2>Activity</h2>
+    <div id="activity-list">${activityList}</div>
 
     <h2>Add Expense</h2>
     <form id="add-expense-form">
@@ -155,40 +215,133 @@ function groupPage(group) {
         <select id="exp-paid-by">${memberOptions}</select>
       </div>
       <div class="form-group">
+        <label for="exp-split-type">Split type</label>
+        <select id="exp-split-type">
+          <option value="equal">Equal</option>
+          <option value="exact">Exact amounts</option>
+          <option value="percentage">Percentage</option>
+        </select>
+      </div>
+      <div id="panel-equal" class="form-group">
         <label>Split between</label>
         <div class="checkboxes">${splitCheckboxes}</div>
+      </div>
+      <div id="panel-exact" class="form-group" style="display:none">
+        <label>Exact amounts ($)</label>
+        ${exactInputs}
+      </div>
+      <div id="panel-pct" class="form-group" style="display:none">
+        <label>Percentages (%)</label>
+        ${pctInputs}
       </div>
       <button type="submit">Add Expense</button>
       <p id="expense-error" class="error" style="display:none"></p>
     </form>
   </div>
   <script>
+    // Delete buttons (expense or settlement)
     document.querySelectorAll('.delete-btn').forEach(function(btn) {
       btn.addEventListener('click', async function() {
-        const id = this.dataset.expenseId;
-        const resp = await fetch('/api/expenses/' + id, { method: 'DELETE' });
+        const expId = this.dataset.expenseId;
+        const setId = this.dataset.settlementId;
+        const url = expId ? '/api/expenses/' + expId : '/api/settlements/' + setId;
+        const resp = await fetch(url, { method: 'DELETE' });
         if (resp.ok) {
           window.location.reload();
         } else {
-          alert('Failed to delete expense.');
+          alert(expId ? 'Failed to delete expense.' : 'Failed to delete settlement.');
         }
       });
     });
 
+    // Record suggestion buttons
+    document.querySelectorAll('.record-suggestion-btn').forEach(function(btn) {
+      btn.addEventListener('click', async function() {
+        const body = {
+          from_member_id: parseInt(this.dataset.from, 10),
+          to_member_id:   parseInt(this.dataset.to, 10),
+          amount:         this.dataset.amount,
+        };
+        const resp = await fetch('/api/groups/${group.id}/settlements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (resp.ok) {
+          window.location.reload();
+        } else {
+          const data = await resp.json();
+          alert(data.error || 'Failed to record settlement.');
+        }
+      });
+    });
+
+    // Record payment form
+    document.getElementById('record-payment-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const from_member_id = parseInt(document.getElementById('pay-from').value, 10);
+      const to_member_id   = parseInt(document.getElementById('pay-to').value, 10);
+      const amount         = document.getElementById('pay-amount').value;
+      const errEl = document.getElementById('payment-error');
+      errEl.style.display = 'none';
+      try {
+        const resp = await fetch('/api/groups/${group.id}/settlements', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ from_member_id, to_member_id, amount }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          errEl.textContent = data.error || 'Error recording payment.';
+          errEl.style.display = 'block';
+          return;
+        }
+        window.location.reload();
+      } catch (err) {
+        errEl.textContent = 'Network error.';
+        errEl.style.display = 'block';
+      }
+    });
+
+    // Split type panel show/hide
+    document.getElementById('exp-split-type').addEventListener('change', function() {
+      document.getElementById('panel-equal').style.display = this.value === 'equal'      ? '' : 'none';
+      document.getElementById('panel-exact').style.display = this.value === 'exact'      ? '' : 'none';
+      document.getElementById('panel-pct').style.display   = this.value === 'percentage' ? '' : 'none';
+    });
+
+    // Add expense form
     document.getElementById('add-expense-form').addEventListener('submit', async function(e) {
       e.preventDefault();
       const description = document.getElementById('exp-description').value;
-      const amount = document.getElementById('exp-amount').value;
-      const paid_by = parseInt(document.getElementById('exp-paid-by').value, 10);
-      const checkboxes = document.querySelectorAll('input[name="split_between"]:checked');
-      const split_between = Array.from(checkboxes).map(cb => parseInt(cb.value, 10));
-      const errEl = document.getElementById('expense-error');
+      const amount      = document.getElementById('exp-amount').value;
+      const paid_by     = parseInt(document.getElementById('exp-paid-by').value, 10);
+      const split_type  = document.getElementById('exp-split-type').value;
+      const errEl       = document.getElementById('expense-error');
       errEl.style.display = 'none';
+
+      const body = { description, amount, paid_by, split_type };
+
+      if (split_type === 'equal') {
+        const checkboxes = document.querySelectorAll('input[name="split_between"]:checked');
+        body.split_between = Array.from(checkboxes).map(cb => parseInt(cb.value, 10));
+      } else if (split_type === 'exact') {
+        const inputs = document.querySelectorAll('.exact-amount');
+        body.splits = Array.from(inputs)
+          .filter(inp => inp.value && inp.value.trim() !== '')
+          .map(inp => ({ member_id: parseInt(inp.dataset.memberId, 10), amount: inp.value.trim() }));
+      } else if (split_type === 'percentage') {
+        const inputs = document.querySelectorAll('.pct-amount');
+        body.splits = Array.from(inputs)
+          .filter(inp => inp.value && parseFloat(inp.value) > 0)
+          .map(inp => ({ member_id: parseInt(inp.dataset.memberId, 10), percentage: parseFloat(inp.value) }));
+      }
+
       try {
         const resp = await fetch('/api/groups/${group.id}/expenses', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description, amount, paid_by, split_between })
+          body: JSON.stringify(body),
         });
         const data = await resp.json();
         if (!resp.ok) {
@@ -228,7 +381,7 @@ router.get('/groups/:id', (req, res) => {
   const members = db.prepare('SELECT id, name FROM members WHERE group_id = ? ORDER BY id ASC').all(groupId);
 
   const expenseRows = db.prepare(
-    'SELECT id, description, amount, paid_by, created_at FROM expenses WHERE group_id = ? ORDER BY created_at DESC'
+    'SELECT id, description, amount, paid_by, created_at, split_type FROM expenses WHERE group_id = ? ORDER BY created_at DESC'
   ).all(groupId);
 
   const expenses = expenseRows.map(exp => {
@@ -240,6 +393,7 @@ router.get('/groups/:id', (req, res) => {
       id: exp.id,
       description: exp.description,
       amount: centsToString(exp.amount),
+      split_type: exp.split_type || 'equal',
       paid_by: { id: exp.paid_by, name: paidByMember ? paidByMember.name : '' },
       created_at: exp.created_at,
       splits: splits.map(s => ({
@@ -255,13 +409,40 @@ router.get('/groups/:id', (req, res) => {
     return { amount: exp.amount, paid_by: exp.paid_by, splits };
   });
 
-  const balances = computeBalances(members, expensesForBalance);
+  const settlementRows = db.prepare(
+    'SELECT id, from_member_id, to_member_id, amount, created_at FROM settlements WHERE group_id = ? ORDER BY created_at DESC'
+  ).all(groupId);
+
+  const balances = computeBalances(members, expensesForBalance, settlementRows);
+  const suggestedSettlements = simplifyDebts(balances);
+
+  const feedExpenses = expenses.map(exp => ({ type: 'expense', ...exp }));
+  const feedSettlements = settlementRows.map(s => {
+    const fromMember = members.find(m => m.id === s.from_member_id);
+    const toMember   = members.find(m => m.id === s.to_member_id);
+    return {
+      type: 'settlement',
+      id: s.id,
+      created_at: s.created_at,
+      from_member: { id: s.from_member_id, name: fromMember ? fromMember.name : '' },
+      to_member:   { id: s.to_member_id,   name: toMember   ? toMember.name   : '' },
+      amount: centsToString(s.amount),
+    };
+  });
+
+  const feed = [...feedExpenses, ...feedSettlements].sort((a, b) => {
+    if (a.created_at !== b.created_at) return a.created_at < b.created_at ? 1 : -1;
+    if (a.type !== b.type) return a.type < b.type ? -1 : 1;
+    return b.id - a.id;
+  });
 
   res.send(groupPage({
     id: group.id,
     name: group.name,
     members: balances,
+    suggested_settlements: suggestedSettlements,
     expenses,
+    feed,
   }));
 });
 

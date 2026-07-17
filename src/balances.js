@@ -57,6 +57,37 @@ function computeSplits(totalCents, memberIds) {
   }));
 }
 
+// Compute percentage-based splits. Returns array of { memberId, shareCents }.
+// Input splits: [{ memberId, percentage }] (already validated: percentages > 0, sum ≈ 100.00)
+function computePercentageSplits(totalCents, splits) {
+  // Sort by percentage DESC, then memberId ASC for ties
+  const sorted = [...splits].sort((a, b) =>
+    b.percentage !== a.percentage
+      ? b.percentage - a.percentage
+      : a.memberId - b.memberId
+  );
+
+  // Compute floor amounts
+  const withFloor = sorted.map(s => ({
+    memberId: s.memberId,
+    floorCents: Math.floor(totalCents * s.percentage / 100),
+    percentage: s.percentage,
+  }));
+
+  // Compute remainder
+  const totalFloor = withFloor.reduce((acc, s) => acc + s.floorCents, 0);
+  let remainder = totalCents - totalFloor;
+
+  // Addendum A4: defensive clamp
+  remainder = Math.max(0, Math.min(remainder, withFloor.length));
+
+  // Distribute remainder (+1 cent to the first `remainder` entries in sorted order)
+  return withFloor.map((s, i) => ({
+    memberId: s.memberId,
+    shareCents: s.floorCents + (i < remainder ? 1 : 0),
+  }));
+}
+
 // Format integer cents as a signed dollar string with exactly 2 decimal places.
 function centsToString(cents) {
   if (cents === 0) return '0.00';
@@ -67,17 +98,30 @@ function centsToString(cents) {
   return sign + String(dollars) + '.' + String(pennies).padStart(2, '0');
 }
 
-// Compute net balances for each member.
-// members: [{ id, name }]
-// expenses: [{ amount, paid_by, splits: [{ member_id, share_amount }] }]
+// Parse centsToString output back to a signed integer. Private helper for simplifyDebts.
+function balanceStringToCents(str) {
+  const neg = str.startsWith('-');
+  const abs = neg ? str.slice(1) : str;
+  const [d, c] = abs.split('.');
+  return (parseInt(d, 10) * 100 + parseInt(c, 10)) * (neg ? -1 : 1);
+}
+
+// Compute net balances for each member, incorporating settlements.
+// members:     [{ id, name }]
+// expenses:    [{ amount, paid_by, splits: [{ member_id, share_amount }] }]
+// settlements: [{ from_member_id, to_member_id, amount }]  (optional, defaults to [])
 // Returns [{ id, name, balance: string }]
-function computeBalances(members, expenses) {
-  const paidMap = {};
-  const owedMap = {};
+function computeBalances(members, expenses, settlements = []) {
+  const paidMap       = {};
+  const owedMap       = {};
+  const settledOutMap = {};
+  const settledInMap  = {};
 
   for (const m of members) {
-    paidMap[m.id] = 0;
-    owedMap[m.id] = 0;
+    paidMap[m.id]       = 0;
+    owedMap[m.id]       = 0;
+    settledOutMap[m.id] = 0;
+    settledInMap[m.id]  = 0;
   }
 
   for (const expense of expenses) {
@@ -87,11 +131,69 @@ function computeBalances(members, expenses) {
     }
   }
 
+  for (const s of settlements) {
+    settledOutMap[s.from_member_id] += s.amount;
+    settledInMap[s.to_member_id]    += s.amount;
+  }
+
   return members.map(m => ({
-    id: m.id,
-    name: m.name,
-    balance: centsToString(paidMap[m.id] - owedMap[m.id]),
+    id:      m.id,
+    name:    m.name,
+    balance: centsToString(
+      paidMap[m.id] - owedMap[m.id] + settledOutMap[m.id] - settledInMap[m.id]
+    ),
   }));
 }
 
-module.exports = { dollarsToCents, computeSplits, centsToString, computeBalances };
+// Greedy debt-simplification algorithm (spec §4.1).
+// Input:  array returned by computeBalances — [{ id, name, balance: string }]
+// Output: [{ from: { id, name }, to: { id, name }, amount: string }]
+function simplifyDebts(membersWithBalances) {
+  const credits = [];
+  const debts   = [];
+  for (const m of membersWithBalances) {
+    const cents = balanceStringToCents(m.balance);
+    if (cents > 0) credits.push({ id: m.id, name: m.name, balanceCents: cents });
+    if (cents < 0) debts.push({   id: m.id, name: m.name, balanceCents: cents });
+  }
+
+  const transactions = [];
+
+  while (credits.length > 0 && debts.length > 0) {
+    // Largest creditor: highest balanceCents, tie → lowest id
+    credits.sort((a, b) =>
+      b.balanceCents !== a.balanceCents ? b.balanceCents - a.balanceCents : a.id - b.id
+    );
+    // Largest debtor by magnitude: most negative balanceCents, tie → lowest id
+    debts.sort((a, b) =>
+      a.balanceCents !== b.balanceCents ? a.balanceCents - b.balanceCents : a.id - b.id
+    );
+
+    const C = credits[0];
+    const D = debts[0];
+    const amount = Math.min(C.balanceCents, -D.balanceCents);
+
+    transactions.push({
+      from:   { id: D.id, name: D.name },
+      to:     { id: C.id, name: C.name },
+      amount: centsToString(amount),
+    });
+
+    C.balanceCents -= amount;
+    D.balanceCents += amount;
+
+    if (C.balanceCents === 0) credits.shift();
+    if (D.balanceCents === 0) debts.shift();
+  }
+
+  return transactions;
+}
+
+module.exports = {
+  dollarsToCents,
+  computeSplits,
+  computePercentageSplits,
+  centsToString,
+  computeBalances,
+  simplifyDebts,
+};

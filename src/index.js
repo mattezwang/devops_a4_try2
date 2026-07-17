@@ -5,6 +5,7 @@ const path = require('path');
 
 const groupsRouter = require('./routes/groups');
 const expensesRouter = require('./routes/expenses');
+const settlementsRouter = require('./routes/settlements');
 const pagesRouter = require('./routes/pages');
 
 const app = express();
@@ -14,6 +15,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.use('/api', groupsRouter);
 app.use('/api', expensesRouter);
+app.use('/api', settlementsRouter);
 app.use('/', pagesRouter);
 
 const PORT = process.env.PORT || 3000;

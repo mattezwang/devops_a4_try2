@@ -45,6 +45,22 @@ a:hover { text-decoration: underline; }
 
 .checkboxes label { display: inline-block; margin-right: 1rem; font-weight: normal; }
 
+.split-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.4rem;
+  gap: 0.5rem;
+}
+.split-row label {
+  min-width: 120px;
+  font-weight: normal;
+  margin-bottom: 0;
+}
+.split-row input {
+  width: 120px;
+  flex: none;
+}
+
 button {
   background: #0066cc;
   color: #fff;
@@ -79,5 +95,48 @@ button:hover { background: #0052a3; }
 }
 .expense-item:last-child { border-bottom: none; }
 .expense-info { flex: 1; margin-right: 1rem; }
+
+.activity-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #eee;
+}
+.activity-item:last-child { border-bottom: none; }
+
+.settlement-tag {
+  display: inline-block;
+  background: #e8f0fe;
+  color: #1a56db;
+  border-radius: 3px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.8rem;
+  margin-left: 0.4rem;
+}
+
+.suggested-settlements {
+  margin-bottom: 1rem;
+}
+
+.settlement-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid #eee;
+}
+.settlement-suggestion:last-child { border-bottom: none; }
+
+.record-suggestion-btn {
+  background: #0a7c42;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.85rem;
+}
+.record-suggestion-btn:hover { background: #086332; }
+
+.record-payment {
+  margin-top: 1rem;
+}
 
 .error { color: red; margin-top: 0.5rem; }
