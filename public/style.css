@@ -1,0 +1,83 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f5f5f5;
+  color: #333;
+  margin: 0;
+  padding: 1rem;
+}
+
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  background: #fff;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+h1 { font-size: 2rem; margin-bottom: 0.5rem; }
+h2 { font-size: 1.3rem; margin-top: 2rem; }
+
+a { color: #0066cc; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.group-list { list-style: none; padding: 0; }
+.group-list li { padding: 0.4rem 0; border-bottom: 1px solid #eee; }
+.group-list li:last-child { border-bottom: none; }
+
+.empty-state { color: #888; font-style: italic; }
+
+.form-group { margin-bottom: 1rem; }
+.form-group label { display: block; font-weight: 600; margin-bottom: 0.3rem; }
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.checkboxes label { display: inline-block; margin-right: 1rem; font-weight: normal; }
+
+button {
+  background: #0066cc;
+  color: #fff;
+  border: none;
+  padding: 0.5rem 1.2rem;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+}
+button:hover { background: #0052a3; }
+
+.delete-btn {
+  background: #cc0000;
+  padding: 0.3rem 0.8rem;
+  font-size: 0.85rem;
+}
+.delete-btn:hover { background: #990000; }
+
+.balance-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
+.balance-table th, .balance-table td { padding: 0.5rem 1rem; text-align: left; border-bottom: 1px solid #eee; }
+.balance-table th { background: #f0f0f0; }
+
+.positive { color: green; font-weight: 600; }
+.negative { color: red; font-weight: 600; }
+
+.expense-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid #eee;
+}
+.expense-item:last-child { border-bottom: none; }
+.expense-info { flex: 1; margin-right: 1rem; }
+
+.error { color: red; margin-top: 0.5rem; }

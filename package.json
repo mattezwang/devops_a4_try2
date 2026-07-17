@@ -1,0 +1,13 @@
+{
+  "name": "splittab",
+  "version": "1.0.0",
+  "description": "Shared group-expense tracker",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "express": "^4"
+  }
+}
